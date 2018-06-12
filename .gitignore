@@ -2,3 +2,5 @@
 .ipynb_checkpoints/
 Read_Midi.ipynb
 mozart/
+.idea
+*.pyc

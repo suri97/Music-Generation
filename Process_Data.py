@@ -22,12 +22,15 @@ def Read_File(path):
 
 def Get_All_Msgs(pat):
     l = []
-    
+    found = False
     for i, track in enumerate(pat.tracks):
         for msg in track:
             if not msg.is_meta and msg.type == 'note_on':
-                l.append( msg )
-            
+                l.append(msg)
+                found = True
+        if found:
+            break
+
     return l
 
 
@@ -44,9 +47,9 @@ def Get_Data(Msgs):
         velocity.append( msg.velocity )
         t.append ( msg.time )
     
-    note = np.array(note, dtype=np.int64)
-    velocity = np.array(velocity, np.int64)
-    t = np.array([t])
+    note = np.array(note, dtype=np.int32)
+    velocity = np.array(velocity, np.int32)
+    t = np.array([t], dtype=np.float32)
     
     return note, velocity, t
 
@@ -100,19 +103,19 @@ def Processed_Data(path, scaler = None):
     
     if not scaler:
         time_scaler = MinMaxScaler( feature_range=(0,1) )
-        t_scaled = time_scaler.fit_transform( np.float64(t) )
+        t_scaled = time_scaler.fit_transform( t )
         
         data['scaler'] = time_scaler
         data['MulFactor'] = time_scaler.scale_[0]
         data['AddFactor'] = time_scaler.min_[0]
         
     else:
-        t_scaled = scaler.fit( np.float64(t) )
+        t_scaled = scaler.fit( t )
         data['scaler'] = scaler
         data['MulFactor'] = scaler.scale_[0]
         data['AddFactor'] = scaler.min_[0]
     
-    data['time'] = np.reshape(t_scaled, (1,-1) )
+    data['time'] = t_scaled
     
     ## Time will be obtained by multiplying it by MulFactor and adding AddFactor
         
