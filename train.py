@@ -219,7 +219,7 @@ with tf.Session() as sess:
 
     print ("Training Note Loss is {:,.6f} & Testing Note Loss is {:,.6f}".format(train_note_loss, test_note_loss))
     print ("Training Velocity Loss is {:,.6f} & Testing Velocity Loss is {:,.6f}".format(train_vel_loss, test_vel_loss))
-    print ("Training Time Loss is {:,.6f} & Testing Time Loss is ".format(train_time_loss, test_time_loss))
+    print ("Training Time Loss is {:,.6f} & Testing Time Loss is {:,.6f}".format(train_time_loss, test_time_loss))
 
     print ("-------------------")
 
