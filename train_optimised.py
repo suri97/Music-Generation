@@ -30,6 +30,7 @@ lr = args.lr
 num_epoch = args.nb_epoch
 num_total = num_notes + num_vel + num_time
 display_step = args.d_step
+hidden_layer = 512
 
 print('[i] Number of Epochs:          ', num_epoch)
 print('[i] Learning Rate:          ', lr)
@@ -50,18 +51,26 @@ with tf.variable_scope('input'):
 
 with tf.variable_scope('rnn'):
     weights = {
-        'out': tf.Variable(tf.random_normal([n_hidden, num_total]))
+        'hidden_layer': tf.Variable(tf.random_normal( [n_hidden, hidden_layer] )),
+        'out': tf.Variable(tf.random_normal( [hidden_layer, num_total] ))
     }
     biases = {
-        'out': tf.Variable(tf.random_normal([num_total]))
+        'hidden_layer': tf.Variable(tf.random_normal( [hidden_layer] )),
+        'out': tf.Variable(tf.random_normal([num_total])),
     }
 
     input = tf.unstack(input_x, time_steps, 1)
 
     rnn_cell = tf.contrib.rnn.BasicLSTMCell(n_hidden)
-    outputs, _ = tf.contrib.rnn.static_rnn(rnn_cell, input, dtype=tf.float32)
+    outputs_rnn, _ = tf.contrib.rnn.static_rnn(rnn_cell, input, dtype=tf.float32)
 
-    pred = tf.matmul(outputs[-1], weights['out']) + biases['out']
+    outputs_rnn = tf.nn.dropout(outputs_rnn, keep_prob=0.6)
+
+    outputs = tf.matmul( outputs_rnn[-1], weights['hidden_layer'] ) + biases['hidden_layer']
+
+    outputs = tf.nn.dropout( outputs, keep_prob=0.5 )
+
+    pred = tf.matmul(outputs, weights['out']) + biases['out']
 
     pred_note = pred[:,:num_notes]
     pred_vel = pred[:,num_notes: num_notes + num_vel]
