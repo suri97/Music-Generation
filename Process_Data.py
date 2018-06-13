@@ -1,12 +1,14 @@
 
 # coding: utf-8
 
-# In[29]:
+# In[23]:
 
 
 import numpy as np
 import mido
 from sklearn.preprocessing import MinMaxScaler
+import pickle
+import os
 
 
 # In[2]:
@@ -17,7 +19,7 @@ def Read_File(path):
     return pattern
 
 
-# In[7]:
+# In[3]:
 
 
 def Get_All_Msgs(pat):
@@ -26,15 +28,15 @@ def Get_All_Msgs(pat):
     for i, track in enumerate(pat.tracks):
         for msg in track:
             if not msg.is_meta and msg.type == 'note_on':
-                l.append(msg)
+                l.append( msg )
                 found = True
         if found:
             break
-
+            
     return l
 
 
-# In[46]:
+# In[4]:
 
 
 def Get_Data(Msgs):
@@ -49,12 +51,12 @@ def Get_Data(Msgs):
     
     note = np.array(note, dtype=np.int32)
     velocity = np.array(velocity, np.int32)
-    t = np.array([t], dtype=np.float32)
+    t = np.array([t], dtype=np.float32 )
     
     return note, velocity, t
 
 
-# In[23]:
+# In[5]:
 
 
 def Get_Categorical(v, num_classes):
@@ -66,7 +68,7 @@ def Get_Categorical(v, num_classes):
     return cat_mat
 
 
-# In[17]:
+# In[6]:
 
 
 def Write_File(note, vel, t):
@@ -83,10 +85,10 @@ def Write_File(note, vel, t):
     return new_midi
 
 
-# In[65]:
+# In[13]:
 
 
-def Processed_Data(path, scaler = None):
+def Processed_Data(path):
     
     pat = Read_File(path)
     l = Get_All_Msgs(pat)
@@ -94,30 +96,44 @@ def Processed_Data(path, scaler = None):
     note = Get_Categorical(note, 128)
     velocity = Get_Categorical( velocity, 128 )
     
-    data = {
-        'note': note,
-        'velocity': velocity
-    }
-    
     t = np.reshape(t, (-1,1) )
+    time_scaler = MinMaxScaler( feature_range=(0,1) )
+    t_scaled = time_scaler.fit_transform( t )
     
-    if not scaler:
-        time_scaler = MinMaxScaler( feature_range=(0,1) )
-        t_scaled = time_scaler.fit_transform( t )
-        
-        data['scaler'] = time_scaler
-        data['MulFactor'] = time_scaler.scale_[0]
-        data['AddFactor'] = time_scaler.min_[0]
-        
-    else:
-        t_scaled = scaler.fit( t )
-        data['scaler'] = scaler
-        data['MulFactor'] = scaler.scale_[0]
-        data['AddFactor'] = scaler.min_[0]
+    split = int(0.8 * note.shape[0])
     
-    data['time'] = t_scaled
+    data = {
+        'note_train': note[:split],
+        'note_test': note[split:],
+        'vel_train': velocity[:split],
+        'vel_test': velocity[split:],
+        'scaler': time_scaler,
+        'MulFactor': time_scaler.scale_[0],
+        'AddFactor': time_scaler.min_[0],
+        'time_train': t_scaled[:split],
+        'time_test': t_scaled[split:]
+    }
     
     ## Time will be obtained by multiplying it by MulFactor and adding AddFactor
         
     return data
+
+
+# In[24]:
+
+
+data_dir = './mozart/'
+song_files = os.listdir(data_dir)
+
+
+# In[25]:
+
+
+for song in song_files:
+    if song[-3:] != 'mid':
+        continue
+    data = Processed_Data(data_dir+song)
+    with open('./Training_Data/'+ song[:-3] + 'pkl', 'wb') as f:
+        pickle.dump(data, f)
+    print ( song[:-4] , " Done" )
 
