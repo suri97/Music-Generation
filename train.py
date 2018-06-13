@@ -2,16 +2,35 @@ import numpy as np
 import pickle
 import os
 import tensorflow as tf
+import argparse
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
+parser = argparse.ArgumentParser()
+parser.add_argument('--n_hidden', type=int,
+                    help='Enter num of hidden LSTM cells', default = 256)
+parser.add_argument('--time_step', type=int,
+                    help='Enter Time Step', default = 10)
+parser.add_argument('--lr', type=float,
+                    help='Enter Learning Rate', default = 0.001)
+parser.add_argument('--nb_epoch', type=int,
+                    help='Enter Number of Epochs', default = 100)
+
+
+args = parser.parse_args()
+
 num_notes = 128
 num_vel = 128
-n_hidden = 256
+n_hidden = args.n_hidden
 num_time = 1
-time_steps = 3
-lr = 0.001
-num_epoch = 1
+time_steps = args.time_step
+lr = args.lr
+num_epoch = args.nb_epoch
+
+print('[i] Number of Epochs:          ', num_epoch)
+print('[i] Learning Rate:          ', lr)
+print('[i] Number of hidden units:          ', n_hidden)
+print('[i] Time Step:          ', time_steps)
 
 with tf.variable_scope('input'):
     note_x = tf.placeholder(dtype=tf.float32, shape=[None, time_steps, num_notes])
@@ -112,6 +131,11 @@ with tf.Session() as sess:
         train_time_loss = 0.0
         tot_samples_train = 0
 
+        test_note_loss = 0.0
+        test_vel_loss = 0.0
+        test_time_loss = 0.0
+        tot_samples_test = 0
+
         for pkl in pickle_files:
             if pkl[-3:] != 'pkl':
                 continue
@@ -120,7 +144,6 @@ with tf.Session() as sess:
                 data = pickle.load(f)
 
             n_samples = data['note_train'].shape[0]
-            tot_samples_train += n_samples
 
             curr = 0
             while curr + time_steps < n_samples:
@@ -138,9 +161,7 @@ with tf.Session() as sess:
 
                 curr += 1
 
-            train_note_temp = 0.0
-            train_vel_temp = 0.0
-            train_time_temp = 0.0
+            tot_samples_train += curr
 
             curr = 0
             while curr + time_steps < n_samples:
@@ -156,23 +177,49 @@ with tf.Session() as sess:
                     time_y: t_y
                 })
 
+                train_note_loss += n_loss
+                train_vel_loss += v_loss
+                train_time_loss += t_loss
+
                 curr += 1
 
-            train_note_temp += n_loss
-            train_vel_temp += v_loss
-            train_time_temp += t_loss
 
-        train_note_loss += train_note_temp
-        train_vel_loss += train_vel_temp
-        train_time_loss += train_time_temp
+
+            n_samples = data['note_test'].shape[0]
+
+            curr = 0
+            while curr + time_steps < n_samples:
+                n_x, v_x, t_x = Get_Next_X(data['note_test'], data['vel_test'], data['time_test'], curr)
+                n_y, v_y, t_y = Get_Next_Y(data['note_test'], data['vel_test'], data['time_test'], curr)
+
+                n_loss, v_loss, t_loss = sess.run([note_cost, vel_cost, time_cost], feed_dict={
+                    note_x: n_x,
+                    note_y: n_y,
+                    vel_x: v_x,
+                    vel_y: v_y,
+                    time_x: t_x,
+                    time_y: t_y
+                })
+
+                test_note_loss += n_loss
+                test_vel_loss += v_loss
+                test_time_loss += t_loss
+
+                curr += 1
+
+            tot_samples_test += curr
 
     train_note_loss /= tot_samples_train
     train_vel_loss /= tot_samples_train
     train_time_loss /= tot_samples_train
 
-    print ("Training Note Loss is {:,.6f}".format(train_note_loss))
-    print ("Training Velocity Loss is {:,.6f}".format(train_vel_loss))
-    print ("Training Time Loss is {:,.6f}".format(train_time_loss))
+    test_note_loss /= tot_samples_test
+    test_vel_loss /= tot_samples_test
+    test_time_loss /= tot_samples_test
+
+    print ("Training Note Loss is {:,.6f} & Testing Note Loss is {:,.6f}".format(train_note_loss, test_note_loss))
+    print ("Training Velocity Loss is {:,.6f} & Testing Velocity Loss is {:,.6f}".format(train_vel_loss, test_vel_loss))
+    print ("Training Time Loss is {:,.6f} & Testing Time Loss is ".format(train_time_loss, test_time_loss))
 
     print ("-------------------")
 
