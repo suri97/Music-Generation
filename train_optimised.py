@@ -26,6 +26,7 @@ num_time = 1
 time_steps = args.time_step
 lr = args.lr
 num_epoch = args.nb_epoch
+num_total = num_notes + num_vel + num_time
 
 print('[i] Number of Epochs:          ', num_epoch)
 print('[i] Learning Rate:          ', lr)
@@ -34,62 +35,38 @@ print('[i] Time Step:          ', time_steps)
 
 with tf.variable_scope('input'):
     note_x = tf.placeholder(dtype=tf.float32, shape=[None, time_steps, num_notes])
-    note_y = tf.placeholder(dtype=tf.int32, shape=[None, num_notes])
+    note_y = tf.placeholder(dtype=tf.float32, shape=[None, num_notes])
     vel_x = tf.placeholder(dtype=tf.float32, shape=[None, time_steps, num_vel])
-    vel_y = tf.placeholder(dtype=tf.int32, shape=[None, num_vel])
+    vel_y = tf.placeholder(dtype=tf.float32, shape=[None, num_vel])
     time_x = tf.placeholder(dtype=tf.float32, shape=[None, time_steps, num_time])
     time_y = tf.placeholder(dtype=tf.float32, shape=[None, num_time])
 
-with tf.variable_scope('note_pred'):
-    weights_note = {
-        'out': tf.Variable(tf.random_normal([n_hidden, num_notes]))
+    input_x = tf.concat( (note_x, vel_x, time_x), axis=2 )
+    output_y = tf.concat( (note_y, vel_y, time_y), axis=1 )
+
+with tf.variable_scope('rnn'):
+    weights = {
+        'out': tf.Variable(tf.random_normal([n_hidden, num_total]))
     }
-    biases_note = {
-        'out': tf.Variable(tf.random_normal([num_notes]))
+    biases = {
+        'out': tf.Variable(tf.random_normal([num_total]))
     }
 
-    input_note = tf.unstack(note_x, time_steps, 1)
-    # input_note = tf.transpose( note_x, [1, 0, 2] )
+    input = tf.unstack(input_x, time_steps, 1)
 
     rnn_cell = tf.contrib.rnn.BasicLSTMCell(n_hidden)
-    outputs, _ = tf.contrib.rnn.static_rnn(rnn_cell, input_note, dtype=tf.float32)
+    outputs, _ = tf.contrib.rnn.static_rnn(rnn_cell, input, dtype=tf.float32)
 
-    note_pred = tf.matmul(outputs[-1], weights_note['out']) + biases_note['out']
+    pred = tf.matmul(outputs[-1], weights['out']) + biases['out']
 
-with tf.variable_scope('vel_pred'):
-    weights_vel = {
-        'out': tf.Variable(tf.random_normal([n_hidden, num_vel]))
-    }
-    biases_vel = {
-        'out': tf.Variable(tf.random_normal([num_vel]))
-    }
-
-    input_vel = tf.unstack(vel_x, time_steps, 1)
-
-    rnn_cell = tf.contrib.rnn.BasicLSTMCell(n_hidden)
-    outputs, _ = tf.contrib.rnn.static_rnn(rnn_cell, input_vel, dtype=tf.float32)
-
-    vel_pred = tf.matmul(outputs[-1], weights_vel['out']) + biases_vel['out']
-
-with tf.variable_scope('time_pred'):
-    weights_time = {
-        'out': tf.Variable(tf.random_normal([n_hidden, num_time]))
-    }
-    biases_time = {
-        'out': tf.Variable(tf.random_normal([num_time]))
-    }
-
-    input_time = tf.unstack(time_x, time_steps, 1)
-
-    rnn_cell = tf.contrib.rnn.BasicLSTMCell(n_hidden)
-    outputs, _ = tf.contrib.rnn.static_rnn(rnn_cell, input_time, dtype=tf.float32)
-
-    time_pred = tf.matmul(outputs[-1], weights_time['out']) + biases_time['out']
+    pred_note = pred[:,:num_notes]
+    pred_vel = pred[:,num_notes: num_notes + num_vel]
+    pred_time = pred[:,-1]
 
 with tf.variable_scope('costs'):
-    note_cost = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=note_y, logits=note_pred))
-    vel_cost = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=vel_y, logits=vel_pred))
-    time_cost = tf.reduce_mean(tf.squared_difference(time_pred, time_y))
+    note_cost = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=note_y, logits=pred_note))
+    vel_cost = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=vel_y, logits=pred_vel))
+    time_cost = tf.reduce_mean(tf.squared_difference(pred_time, time_y))
 
 with tf.variable_scope('train'):
     opt_note = tf.train.AdamOptimizer(learning_rate=lr).minimize(note_cost)
