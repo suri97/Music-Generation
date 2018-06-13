@@ -21,6 +21,9 @@ parser.add_argument('--d_step', type=int,
 
 args = parser.parse_args()
 
+with open('./Training_Data/train_data.pkl', 'rb') as f:
+    train_data = pickle.load(f)
+
 num_notes = 128
 num_vel = 128
 n_hidden = args.n_hidden
@@ -136,11 +139,17 @@ with tf.Session() as sess:
         test_writer = tf.summary.FileWriter('./logs/testing', sess.graph)
 
         for pkl in pickle_files:
+
+            if pkl == 'train_data.pkl':
+                continue
             if pkl[-3:] != 'pkl':
                 continue
 
             with open(train_dir + pkl, 'rb') as f:
                 data = pickle.load(f)
+
+            data['time_train'] = train_data['scaler'].transform( data['time_train'] )
+            data['time_test'] = train_data['scaler'].transform( data['time_test'] )
 
             n_samples = data['note_train'].shape[0]
 

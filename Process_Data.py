@@ -13,6 +13,7 @@ import os
 
 # In[2]:
 
+time = []
 
 def Read_File(path):
     pattern = mido.MidiFile(path)
@@ -87,7 +88,6 @@ def Write_File(note, vel, t):
 
 # In[13]:
 
-
 def Processed_Data(path):
     
     pat = Read_File(path)
@@ -97,8 +97,9 @@ def Processed_Data(path):
     velocity = Get_Categorical( velocity, 128 )
     
     t = np.reshape(t, (-1,1) )
-    time_scaler = MinMaxScaler( feature_range=(0,1) )
-    t_scaled = time_scaler.fit_transform( t )
+    
+    for i in range(t.shape[0]):
+        time.append(t[i][0])
     
     split = int(0.8 * note.shape[0])
     
@@ -107,11 +108,8 @@ def Processed_Data(path):
         'note_test': note[split:],
         'vel_train': velocity[:split],
         'vel_test': velocity[split:],
-        'scaler': time_scaler,
-        'MulFactor': time_scaler.scale_[0],
-        'AddFactor': time_scaler.min_[0],
-        'time_train': t_scaled[:split],
-        'time_test': t_scaled[split:]
+        'time_train': t[:split],
+        'time_test': t[split:]
     }
     
     ## Time will be obtained by multiplying it by MulFactor and adding AddFactor
@@ -135,5 +133,21 @@ for song in song_files:
     data = Processed_Data(data_dir+song)
     with open('./Training_Data/'+ song[:-3] + 'pkl', 'wb') as f:
         pickle.dump(data, f)
-    print ( song[:-4] , " Done" )
+    print ( song[:-4] , " Done", len(time) )
+
+print ("Preparing Training Data")
+    
+time = np.array(time)
+time = np.reshape( time, (-1,1) )
+time_scaler = MinMaxScaler( feature_range=(0,1) )
+t_scaled = time_scaler.fit_transform( time )
+
+train_data = {
+    'scaler': time_scaler,
+    'MulFactor': time_scaler.scale_[0],
+    'AddFactor': time_scaler.min_[0]
+}
+
+with open('./Training_Data/train_data.pkl', 'wb') as f:
+    pickle.dump(train_data, f)
 

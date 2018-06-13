@@ -4,3 +4,4 @@ Read_Midi.ipynb
 .idea
 *.pyc
 Training_Data/
+logs/
