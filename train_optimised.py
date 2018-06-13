@@ -132,6 +132,9 @@ with tf.Session() as sess:
         test_time_loss = 0.0
         tot_samples_test = 0
 
+        train_writer = tf.summary.FileWriter('./logs/training', sess.graph)
+        test_writer = tf.summary.FileWriter('./logs/testing', sess.graph)
+
         for pkl in pickle_files:
             if pkl[-3:] != 'pkl':
                 continue
@@ -158,9 +161,6 @@ with tf.Session() as sess:
                 curr += 1
 
             tot_samples_train += curr
-
-            train_writer = tf.summary.FileWriter('./logs/training', sess.graph)
-            test_writer = tf.summary.FileWriter('./logs/testing', sess.graph)
 
             curr = 0
             while curr + time_steps < n_samples:
