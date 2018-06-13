@@ -1,5 +1,5 @@
 import numpy as np
-import Process_Data
+import pickle
 import os
 import tensorflow as tf
 
@@ -15,11 +15,11 @@ num_epoch = 1
 
 with tf.variable_scope('input'):
     note_x = tf.placeholder(dtype=tf.float32, shape=[None, time_steps, num_notes])
-    note_y = tf.placeholder( dtype=tf.int32, shape=[None, num_notes] )
+    note_y = tf.placeholder(dtype=tf.int32, shape=[None, num_notes])
     vel_x = tf.placeholder(dtype=tf.float32, shape=[None, time_steps, num_vel])
     vel_y = tf.placeholder(dtype=tf.int32, shape=[None, num_vel])
     time_x = tf.placeholder(dtype=tf.float32, shape=[None, time_steps, num_time])
-    time_y = tf.placeholder( dtype=tf.float32, shape=[None, num_time] )
+    time_y = tf.placeholder(dtype=tf.float32, shape=[None, num_time])
 
 with tf.variable_scope('note_pred'):
     weights_note = {
@@ -30,10 +30,10 @@ with tf.variable_scope('note_pred'):
     }
 
     input_note = tf.unstack(note_x, time_steps, 1)
-    #input_note = tf.transpose( note_x, [1, 0, 2] )
+    # input_note = tf.transpose( note_x, [1, 0, 2] )
 
     rnn_cell = tf.contrib.rnn.BasicLSTMCell(n_hidden)
-    outputs, _ = tf.contrib.rnn.static_rnn(rnn_cell, input_note , dtype=tf.float32)
+    outputs, _ = tf.contrib.rnn.static_rnn(rnn_cell, input_note, dtype=tf.float32)
 
     note_pred = tf.matmul(outputs[-1], weights_note['out']) + biases_note['out']
 
@@ -48,10 +48,9 @@ with tf.variable_scope('vel_pred'):
     input_vel = tf.unstack(vel_x, time_steps, 1)
 
     rnn_cell = tf.contrib.rnn.BasicLSTMCell(n_hidden)
-    outputs, _ = tf.contrib.rnn.static_rnn(rnn_cell, input_vel , dtype=tf.float32)
+    outputs, _ = tf.contrib.rnn.static_rnn(rnn_cell, input_vel, dtype=tf.float32)
 
     vel_pred = tf.matmul(outputs[-1], weights_vel['out']) + biases_vel['out']
-
 
 with tf.variable_scope('time_pred'):
     weights_time = {
@@ -64,90 +63,117 @@ with tf.variable_scope('time_pred'):
     input_time = tf.unstack(time_x, time_steps, 1)
 
     rnn_cell = tf.contrib.rnn.BasicLSTMCell(n_hidden)
-    outputs, _ = tf.contrib.rnn.static_rnn(rnn_cell, input_time , dtype=tf.float32)
+    outputs, _ = tf.contrib.rnn.static_rnn(rnn_cell, input_time, dtype=tf.float32)
 
     time_pred = tf.matmul(outputs[-1], weights_time['out']) + biases_time['out']
 
 with tf.variable_scope('costs'):
-    note_cost = tf.reduce_mean( tf.nn.softmax_cross_entropy_with_logits(labels=note_y, logits=note_pred) )
-    vel_cost = tf.reduce_mean( tf.nn.softmax_cross_entropy_with_logits(labels=vel_y, logits=vel_pred) )
-    time_cost = tf.reduce_mean( tf.squared_difference(time_pred, time_y) )
+    note_cost = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=note_y, logits=note_pred))
+    vel_cost = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=vel_y, logits=vel_pred))
+    time_cost = tf.reduce_mean(tf.squared_difference(time_pred, time_y))
 
 with tf.variable_scope('train'):
     opt_note = tf.train.AdadeltaOptimizer(learning_rate=lr).minimize(note_cost)
-    opt_vel = tf.train.AdamOptimizer( learning_rate=lr ).minimize( vel_cost )
-    opt_time = tf.train.AdamOptimizer( learning_rate=lr ).minimize( time_cost )
+    opt_vel = tf.train.AdamOptimizer(learning_rate=lr).minimize(vel_cost)
+    opt_time = tf.train.AdamOptimizer(learning_rate=lr).minimize(time_cost)
 
 init = tf.global_variables_initializer()
 
+
 def Get_Next_X(note, vel, time, curr):
-    n = np.array( [ note[curr: curr + time_steps] ] )
-    v = np.array( [ vel[ curr: curr + time_steps ] ] )
-    t = np.array( [ time[ curr: curr + time_steps ] ] )
-    return n,v,t
+    n = np.array([note[curr: curr + time_steps]])
+    v = np.array([vel[curr: curr + time_steps]])
+    t = np.array([time[curr: curr + time_steps]])
+    return n, v, t
 
 
 def Get_Next_Y(note, vel, time, curr):
-    n = np.array( [ note[curr + time_steps] ] )
-    v = np.array( [ vel[curr + time_steps] ]  )
-    t = np.array( [ time[curr + time_steps] ] )
-    return n,v,t
+    n = np.array([note[curr + time_steps]])
+    v = np.array([vel[curr + time_steps]])
+    t = np.array([time[curr + time_steps]])
+    return n, v, t
 
-path = './mozart/mz_545_3.mid'
+
+train_dir = './Training_Data/'
+pickle_files = os.listdir(train_dir)
 
 with tf.Session() as sess:
-
     sess.run(init)
 
-    data = Process_Data.Processed_Data(path)
-
-    data['note'] = data['note'][:100]
-    data['velocity'] = data['velocity'][:100]
-    data['time'] = data['time'][:100]
-
-    n_samples = data['note'].shape[0]
-
     print("Training has Started")
+    print ("--------------------")
 
     for epoch in range(num_epoch):
 
-        curr = 0
-        while curr + time_steps < n_samples:
+        print ("Epoch {}:".format(epoch + 1))
 
-            n_x,v_x,t_x = Get_Next_X( data['note'], data['velocity'], data['time'], curr)
-            n_y, v_y, t_y = Get_Next_Y(data['note'], data['velocity'], data['time'], curr)
+        train_note_loss = 0.0
+        train_vel_loss = 0.0
+        train_time_loss = 0.0
+        tot_samples_train = 0
 
-            sess.run([opt_note, opt_vel, opt_time], feed_dict={
-                note_x: n_x,
-                note_y: n_y,
-                vel_x: v_x,
-                vel_y: v_y,
-                time_x: t_x,
-                time_y: t_y
-            })
+        for pkl in pickle_files:
+            if pkl[-3:] != 'pkl':
+                continue
 
-            curr += 1
+            with open(train_dir + pkl, 'rb') as f:
+                data = pickle.load(f)
 
-        train_acc = 0.0
+            n_samples = data['note_train'].shape[0]
+            tot_samples_train += n_samples
 
-        curr = 0
-        while curr + time_steps < n_samples:
-            n_x, v_x, t_x = Get_Next_X(data['note'], data['velocity'], data['time'], curr)
-            n_y, v_y, t_y = Get_Next_Y(data['note'], data['velocity'], data['time'], curr)
+            curr = 0
+            while curr + time_steps < n_samples:
+                n_x, v_x, t_x = Get_Next_X(data['note_train'], data['vel_train'], data['time_train'], curr)
+                n_y, v_y, t_y = Get_Next_Y(data['note_train'], data['vel_train'], data['time_train'], curr)
 
-            train_acc += sess.run(note_cost, feed_dict={
-                note_x: n_x,
-                note_y: n_y,
-                vel_x: v_x,
-                vel_y: v_y,
-                time_x: t_x,
-                time_y: t_y
-            })
+                sess.run([opt_note, opt_vel, opt_time], feed_dict={
+                    note_x: n_x,
+                    note_y: n_y,
+                    vel_x: v_x,
+                    vel_y: v_y,
+                    time_x: t_x,
+                    time_y: t_y
+                })
 
-            curr += 1
+                curr += 1
 
-        train_acc /= n_samples
+            train_note_temp = 0.0
+            train_vel_temp = 0.0
+            train_time_temp = 0.0
 
-        print ("Training Accuracy is ", train_acc)
+            curr = 0
+            while curr + time_steps < n_samples:
+                n_x, v_x, t_x = Get_Next_X(data['note_train'], data['vel_train'], data['time_train'], curr)
+                n_y, v_y, t_y = Get_Next_Y(data['note_train'], data['vel_train'], data['time_train'], curr)
+
+                n_loss, v_loss, t_loss = sess.run([note_cost, vel_cost, time_cost], feed_dict={
+                    note_x: n_x,
+                    note_y: n_y,
+                    vel_x: v_x,
+                    vel_y: v_y,
+                    time_x: t_x,
+                    time_y: t_y
+                })
+
+                curr += 1
+
+            train_note_temp += n_loss
+            train_vel_temp += v_loss
+            train_time_temp += t_loss
+
+        train_note_loss += train_note_temp
+        train_vel_loss += train_vel_temp
+        train_time_loss += train_time_temp
+
+    train_note_loss /= tot_samples_train
+    train_vel_loss /= tot_samples_train
+    train_time_loss /= tot_samples_train
+
+    print ("Training Note Loss is {:,.6f}".format(train_note_loss))
+    print ("Training Velocity Loss is {:,.6f}".format(train_vel_loss))
+    print ("Training Time Loss is {:,.6f}".format(train_time_loss))
+
+    print ("-------------------")
 
     print("Training is Complete")
