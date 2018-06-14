@@ -42,15 +42,9 @@ print('[i] Time Step:          ', time_steps)
 print('[i] Display Step:          ', display_step)
 
 with tf.variable_scope('input'):
-    note_x = tf.placeholder(dtype=tf.float32, shape=[None, time_steps, num_notes])
-    note_y = tf.placeholder(dtype=tf.float32, shape=[None, num_notes])
-    vel_x = tf.placeholder(dtype=tf.float32, shape=[None, time_steps, num_vel])
-    vel_y = tf.placeholder(dtype=tf.float32, shape=[None, num_vel])
-    time_x = tf.placeholder(dtype=tf.float32, shape=[None, time_steps, num_time])
-    time_y = tf.placeholder(dtype=tf.float32, shape=[None, num_time])
 
-    input_x = tf.concat( (note_x, vel_x, time_x), axis=2 )
-    output_y = tf.concat( (note_y, vel_y, time_y), axis=1 )
+    X = tf.placeholder(dtype=tf.float32, shape=[None, time_steps, num_total])
+    Y = tf.placeholder(dtype=tf.float32, shape=[None, num_total])
 
 with tf.variable_scope('rnn'):
     weights = {
@@ -62,7 +56,7 @@ with tf.variable_scope('rnn'):
         'out': tf.Variable(tf.random_normal([num_total])),
     }
 
-    input = tf.unstack(input_x, time_steps, 1)
+    input = tf.unstack(X, time_steps, 1)
 
     rnn_cell = tf.contrib.rnn.BasicLSTMCell(n_hidden)
     outputs_rnn, _ = tf.contrib.rnn.static_rnn(rnn_cell, input, dtype=tf.float32)
@@ -70,6 +64,7 @@ with tf.variable_scope('rnn'):
     outputs_rnn = tf.nn.dropout(outputs_rnn, keep_prob=0.6)
 
     outputs = tf.matmul( outputs_rnn[-1], weights['hidden_layer'] ) + biases['hidden_layer']
+    outputs = tf.nn.relu( outputs )
 
     outputs = tf.nn.dropout( outputs, keep_prob=0.5 )
 
@@ -80,9 +75,9 @@ with tf.variable_scope('rnn'):
     pred_time = pred[:,-1]
 
 with tf.variable_scope('costs'):
-    note_cost = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=note_y, logits=pred_note))
-    vel_cost = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=vel_y, logits=pred_vel))
-    time_cost = tf.reduce_mean(tf.squared_difference(pred_time, time_y))
+    note_cost = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=Y[:,:num_notes], logits=pred_note))
+    vel_cost = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=Y[:,num_notes: num_notes + num_vel], logits=pred_vel))
+    time_cost = tf.reduce_mean(tf.squared_difference(pred_time, Y[:,-1]))
 
 with tf.variable_scope('train'):
     opt_note = tf.train.AdamOptimizer(learning_rate=lr).minimize(note_cost)
@@ -98,19 +93,48 @@ with tf.variable_scope('logging'):
 init = tf.global_variables_initializer()
 saver = tf.train.Saver()
 
+def Get_Data(path):
+    with open(path, 'rb') as f:
+        data = pickle.load(f)
+
+    data['time_train'] = train_data['scaler'].transform(data['time_train'])
+    data['time_test'] = train_data['scaler'].transform(data['time_test'])
+
+    return data
+
 def Get_Next_X(note, vel, time, curr):
-    n = np.array([note[curr: curr + time_steps]])
-    v = np.array([vel[curr: curr + time_steps]])
-    t = np.array([time[curr: curr + time_steps]])
+    n = np.array( note[curr: curr + time_steps] )
+    v = np.array( vel[curr: curr + time_steps] )
+    t = np.array( time[curr: curr + time_steps] )
     return n, v, t
 
 
 def Get_Next_Y(note, vel, time, curr):
-    n = np.array([note[curr + time_steps]])
-    v = np.array([vel[curr + time_steps]])
-    t = np.array([time[curr + time_steps]])
+    n = np.array( [ note[curr + time_steps] ] )
+    v = np.array( [ vel[curr + time_steps] ] )
+    t = np.array( [ time[curr + time_steps] ] )
     return n, v, t
 
+def Get_Processed_Data(note, vel, time, n_samples):
+    curr = 0
+    X = []
+    Y = []
+    while curr + time_steps < n_samples:
+        n_x, v_x, t_x = Get_Next_X(note, vel, time, curr)
+        n_y, v_y, t_y = Get_Next_Y(note, vel, time, curr)
+
+        final_x = np.concatenate( (n_x, v_x, t_x), axis=1 )
+        final_y = np.concatenate( (n_y, v_y, t_y), axis=1 )
+
+        X.append( final_x )
+        Y.append( final_y )
+
+        curr += 1
+
+    X = np.array( X )
+    Y = np.array( Y )
+
+    return X,Y
 
 train_dir = './Training_Data/'
 pickle_files = os.listdir(train_dir)
@@ -145,77 +169,47 @@ with tf.Session() as sess:
             if pkl[-3:] != 'pkl':
                 continue
 
-            with open(train_dir + pkl, 'rb') as f:
-                data = pickle.load(f)
-
-            data['time_train'] = train_data['scaler'].transform( data['time_train'] )
-            data['time_test'] = train_data['scaler'].transform( data['time_test'] )
+            data = Get_Data(train_dir + pkl)
 
             n_samples = data['note_train'].shape[0]
 
-            curr = 0
-            while curr + time_steps < n_samples:
-                n_x, v_x, t_x = Get_Next_X(data['note_train'], data['vel_train'], data['time_train'], curr)
-                n_y, v_y, t_y = Get_Next_Y(data['note_train'], data['vel_train'], data['time_train'], curr)
+            inp, out = Get_Processed_Data( data['note_train'], data['vel_train'], data['time_train'], n_samples )
 
+            for i in range(inp.shape[0]):
                 sess.run([opt_note, opt_vel, opt_time], feed_dict={
-                    note_x: n_x,
-                    note_y: n_y,
-                    vel_x: v_x,
-                    vel_y: v_y,
-                    time_x: t_x,
-                    time_y: t_y
+                    X: np.array( [ inp[i] ] ),
+                    Y: np.array( out[i]   )
                 })
 
-                curr += 1
 
-            tot_samples_train += curr
+            tot_samples_train += inp.shape[0]
 
-            curr = 0
-            while curr + time_steps < n_samples:
-                n_x, v_x, t_x = Get_Next_X(data['note_train'], data['vel_train'], data['time_train'], curr)
-                n_y, v_y, t_y = Get_Next_Y(data['note_train'], data['vel_train'], data['time_train'], curr)
-
+            for i in range( inp.shape[0] ):
                 n_loss, v_loss, t_loss, train_summary = sess.run([note_cost, vel_cost, time_cost,summary], feed_dict={
-                    note_x: n_x,
-                    note_y: n_y,
-                    vel_x: v_x,
-                    vel_y: v_y,
-                    time_x: t_x,
-                    time_y: t_y
+                    X: np.array( [ inp[i] ] ),
+                    Y: np.array( out[i]   )
                 })
 
                 train_note_loss += n_loss
                 train_vel_loss += v_loss
                 train_time_loss += t_loss
 
-                curr += 1
-
-
 
             n_samples = data['note_test'].shape[0]
 
-            curr = 0
-            while curr + time_steps < n_samples:
-                n_x, v_x, t_x = Get_Next_X(data['note_test'], data['vel_test'], data['time_test'], curr)
-                n_y, v_y, t_y = Get_Next_Y(data['note_test'], data['vel_test'], data['time_test'], curr)
+            inp_test, out_test = Get_Processed_Data(data['note_test'], data['vel_test'], data['time_test'], n_samples)
 
+            for i in range( inp_test.shape[0] ):
                 n_loss, v_loss, t_loss, test_summary = sess.run([note_cost, vel_cost, time_cost, summary], feed_dict={
-                    note_x: n_x,
-                    note_y: n_y,
-                    vel_x: v_x,
-                    vel_y: v_y,
-                    time_x: t_x,
-                    time_y: t_y
+                    X: np.array( [ inp_test[i] ] ),
+                    Y: np.array( out_test[i]  )
                 })
 
                 test_note_loss += n_loss
                 test_vel_loss += v_loss
                 test_time_loss += t_loss
 
-                curr += 1
-
-            tot_samples_test += curr
+            tot_samples_test += inp_test.shape[0]
 
         train_note_loss /= tot_samples_train
         train_vel_loss /= tot_samples_train
@@ -225,10 +219,10 @@ with tf.Session() as sess:
         test_vel_loss /= tot_samples_test
         test_time_loss /= tot_samples_test
 
-        if epoch % display_step == 0:
+        if (epoch+1) % display_step == 0:
             train_writer.add_summary(train_summary, epoch)
             test_writer.add_summary(test_summary, epoch)
-            saver.save(sess, './logs/model_' + str(epoch) + '.ckpt')
+            saver.save(sess, './logs/model_' + str(epoch+1) + '.ckpt')
 
         print ("Training Note Loss is {:,.6f} & Testing Note Loss is {:,.6f}".format(train_note_loss, test_note_loss))
         print ("Training Velocity Loss is {:,.6f} & Testing Velocity Loss is {:,.6f}".format(train_vel_loss, test_vel_loss))
